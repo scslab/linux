@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-2.0
+
+menuconfig KVISOR
+	bool "kVisor kernel-based sandbox"
+	depends on RUST
+	depends on X86_64
+	help
+	  kVisor is a kernel-based sandbox for running untrusted code.
+	  It provides a Linux-compatible syscall interface implemented
+	  in Rust, running directly in the kernel for maximum performance.
+
+	  Sandboxed processes see a standard Linux environment, but all
+	  syscalls are mediated by kVisor's Rust implementation.
+
+	  This is similar to gVisor but:
+	  - Written in Rust (for memory safety)
+	  - Implemented directly in the kernel (for performance)
+	  - No VM overhead or syscall interception overhead
+
+	  If unsure, say N.
+
+if KVISOR
+
+config KVISOR_DEBUG
+	bool "kVisor debugging support"
+	help
+	  Enable additional debugging output and assertions in kVisor.
+	  This adds overhead and should only be enabled for development.
+
+	  If unsure, say N.
+
+config KVISOR_MEMFS
+	bool "kVisor in-memory filesystem"
+	default y
+	help
+	  Enable the in-memory filesystem for sandboxed processes.
+	  This provides a tmpfs-like filesystem isolated from the host.
+
+	  If unsure, say Y.
+
+endif # KVISOR

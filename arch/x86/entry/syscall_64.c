@@ -9,6 +9,10 @@
 #include <linux/nospec.h>
 #include <asm/syscall.h>
 
+#ifdef CONFIG_KVISOR
+#include "../../kvisor-interpose/interpose.h"
+#endif
+
 #define __SYSCALL(nr, sym) extern long __x64_##sym(const struct pt_regs *);
 #define __SYSCALL_NORETURN(nr, sym) extern long __noreturn __x64_##sym(const struct pt_regs *);
 #include <asm/syscalls_64.h>
@@ -91,11 +95,23 @@ __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
 
 	instrumentation_begin();
 
+#ifdef CONFIG_KVISOR
+	/*
+	 * Check if this task is running under kVisor supervision.
+	 * If so, route the syscall to kVisor instead of the normal path.
+	 */
+	if (kvisor_syscall_interpose(regs, nr))
+		goto out;
+#endif
+
 	if (!do_syscall_x64(regs, nr) && !do_syscall_x32(regs, nr) && nr != -1) {
 		/* Invalid system call, but still a system call. */
 		regs->ax = __x64_sys_ni_syscall(regs);
 	}
 
+#ifdef CONFIG_KVISOR
+out:
+#endif
 	instrumentation_end();
 	syscall_exit_to_user_mode(regs);
 
