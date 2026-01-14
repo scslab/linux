@@ -12,10 +12,8 @@
 use kernel::prelude::*;
 
 mod exec;
-mod platform;
 mod process;
 mod syscall;
-// mod vfs;  // Not needed for Phase 1
 
 use process::KvisorContext;
 
