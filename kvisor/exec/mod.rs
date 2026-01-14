@@ -433,11 +433,17 @@ pub fn kvisor_exec(
     }
 
     // Step 4: Flush old address space
-    // TODO: Implement proper address space cleanup using kernel internals
-    // like exec_mmap() or flush_old_exec() from fs/exec.c.
-    // For now, we skip the flush and use addresses that won't conflict
-    // with the parent's mappings. This means the child inherits the
-    // parent's mappings (wasteful but harmless for Phase 1).
+    // This creates a new mm_struct and discards all inherited mappings
+    // from the parent process. Essential for:
+    //   - Clearing stale TLB entries
+    //   - Releasing parent's COW pages
+    //   - Starting with a clean address space
+    let ret = unsafe { ffi::kvisor_flush_old_exec() };
+    if ret != 0 {
+        pr_err!("kvisor: Failed to flush old address space: {}\n", ret);
+        return Err(ExecError::OutOfMemory);
+    }
+    pr_info!("kvisor: Old address space flushed\n");
 
     // Step 5: Calculate load bias
     // For PIE executables with base address 0, load at a high address

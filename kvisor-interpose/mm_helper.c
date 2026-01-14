@@ -8,11 +8,16 @@
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/mm_types.h>
 #include <linux/mman.h>
+#include <linux/sched.h>
 #include <linux/sched/mm.h>
+#include <linux/sched/signal.h>
 #include <linux/highmem.h>
 #include <linux/uaccess.h>
+#include <linux/rwsem.h>
 #include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
 
 #include "mm_helper.h"
 
@@ -78,35 +83,133 @@ int kvisor_clear_user_addr(unsigned long addr, unsigned long len)
 EXPORT_SYMBOL_GPL(kvisor_clear_user_addr);
 
 /*
- * kvisor_flush_old_exec - Prepare address space for new executable
+ * kvisor_flush_old_exec - Flush the parent's address space
  *
- * This clears the current process's address space, similar to what
- * happens during execve(). Should be called before loading a new binary.
+ * This is modeled after Linux's exec_mmap() from fs/exec.c.
+ * It creates a new mm_struct for the current process, discarding
+ * all inherited mappings from the parent (after fork). This is
+ * essential before loading a new executable to:
+ *   1. Clear stale TLB entries
+ *   2. Release parent's memory mappings (COW pages)
+ *   3. Start with a clean address space
+ *   4. Properly synchronize with other kernel subsystems
  *
- * Returns 0 on success, negative error on failure.
+ * Returns 0 on success, negative error code on failure.
  */
 int kvisor_flush_old_exec(void)
 {
-	struct mm_struct *mm = current->mm;
+	struct task_struct *tsk = current;
+	struct mm_struct *mm, *old_mm, *active_mm;
 	int ret;
 
-	if (!mm)
+	old_mm = tsk->mm;
+	if (!old_mm) {
+		pr_err("kvisor: flush_old_exec called with no mm\n");
 		return -EINVAL;
+	}
 
-	pr_info("kvisor: Flushing old address space for pid %d\n", current->pid);
+	/* Allocate a new mm_struct */
+	mm = mm_alloc();
+	if (!mm)
+		return -ENOMEM;
 
-	/*
-	 * Unmap the entire user address space.
-	 * This is a simplified version - production code would be more careful
-	 * about things like vdso, etc.
-	 */
-	ret = vm_munmap(0, TASK_SIZE);
-	if (ret < 0) {
-		pr_err("kvisor: vm_munmap failed: %d\n", ret);
+	/* Initialize the new address space (arch-specific context) */
+	ret = init_new_context(tsk, mm);
+	if (ret) {
+		mmdrop(mm);
 		return ret;
 	}
 
-	pr_info("kvisor: Address space flushed successfully\n");
+	/*
+	 * Notify parent that we're no longer interested in the old VM.
+	 * This handles vfork() completion and futex cleanup.
+	 */
+	exec_mm_release(tsk, old_mm);
+
+	/*
+	 * Take the exec_update_lock to serialize with other operations
+	 * that read the mm (like /proc, ptrace, etc.)
+	 */
+	ret = down_write_killable(&tsk->signal->exec_update_lock);
+	if (ret) {
+		mmdrop(mm);
+		return ret;
+	}
+
+	/*
+	 * Take mmap_read_lock on old_mm. This is killable so we can
+	 * respond to fatal signals during exec.
+	 */
+	ret = mmap_read_lock_killable(old_mm);
+	if (ret) {
+		up_write(&tsk->signal->exec_update_lock);
+		mmdrop(mm);
+		return ret;
+	}
+
+	/*
+	 * Now perform the actual mm switch under task_lock with
+	 * interrupts disabled to prevent races with context switches
+	 * and lazy TLB handling.
+	 */
+	task_lock(tsk);
+
+	/* Memory barrier for membarrier syscall users */
+	membarrier_exec_mmap(mm);
+
+	/*
+	 * Disable interrupts during the switch. This prevents preemption
+	 * while active_mm is being updated, which could cause problems
+	 * for lazy TLB mm refcounting.
+	 */
+	local_irq_disable();
+
+	active_mm = tsk->active_mm;
+	tsk->active_mm = mm;
+	tsk->mm = mm;
+
+	/* Initialize per-CPU mm state */
+	mm_init_cid(mm, tsk);
+
+	/*
+	 * Switch the MMU context. This flushes TLB entries for the old mm
+	 * and loads the page table for the new mm.
+	 */
+	if (!IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
+		local_irq_enable();
+	activate_mm(active_mm, mm);
+	if (IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
+		local_irq_enable();
+
+	/* Add to LRU generation tracking for memory reclaim */
+	lru_gen_add_mm(mm);
+
+	task_unlock(tsk);
+
+	/* Mark the mm as in use for LRU tracking */
+	lru_gen_use_mm(mm);
+
+	/*
+	 * Release locks and clean up old_mm.
+	 */
+	mmap_read_unlock(old_mm);
+
+	/* Sanity check: active_mm should have been old_mm */
+	BUG_ON(active_mm != old_mm);
+
+	/* Update RSS high-water mark for accounting */
+	setmax_mm_hiwater_rss(&tsk->signal->maxrss, old_mm);
+
+	/* Update mm ownership for OOM killer */
+	mm_update_next_owner(old_mm);
+
+	/* Release the old mm (decrements refcount, may free it) */
+	mmput(old_mm);
+
+	/* Release exec_update_lock */
+	up_write(&tsk->signal->exec_update_lock);
+
+	pr_info("kvisor: flushed old address space for pid %d\n", tsk->pid);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvisor_flush_old_exec);

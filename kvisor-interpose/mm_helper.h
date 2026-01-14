@@ -29,7 +29,20 @@ int kvisor_copy_to_user_addr(unsigned long to, const void *from, unsigned long l
 int kvisor_clear_user_addr(unsigned long addr, unsigned long len);
 
 /*
- * Clear address space for new executable.
+ * Flush the parent's address space.
+ *
+ * Modeled after Linux's exec_mmap() from fs/exec.c. Creates a new
+ * mm_struct and switches to it, discarding all inherited mappings
+ * from the parent process. This properly:
+ *   - Notifies parent (vfork completion, futex cleanup)
+ *   - Holds exec_update_lock for synchronization with /proc, ptrace
+ *   - Disables interrupts during the mm switch
+ *   - Issues memory barriers for membarrier syscall users
+ *   - Flushes TLB entries via activate_mm()
+ *   - Updates LRU generation tracking for memory reclaim
+ *   - Updates RSS watermarks and OOM killer info
+ *
+ * Returns 0 on success, negative error on failure.
  */
 int kvisor_flush_old_exec(void);
 
