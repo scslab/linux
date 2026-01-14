@@ -58,14 +58,16 @@ pub fn sys_getgid(ctx: &KvisorContext) -> i64 {
 pub fn sys_geteuid(ctx: &KvisorContext) -> i64 {
     pr_debug!("kvisor: geteuid()\n");
 
-    ctx.euid as i64
+    // For Phase 1, euid == uid
+    ctx.uid as i64
 }
 
 /// getegid(2) - get effective group ID
 pub fn sys_getegid(ctx: &KvisorContext) -> i64 {
     pr_debug!("kvisor: getegid()\n");
 
-    ctx.egid as i64
+    // For Phase 1, egid == gid
+    ctx.gid as i64
 }
 
 /// arch_prctl(2) - set architecture-specific thread state
@@ -73,10 +75,7 @@ pub fn sys_arch_prctl(ctx: &mut KvisorContext, code: i32, addr: u64) -> i64 {
     pr_debug!("kvisor: arch_prctl(code={:#x}, addr={:#x})\n", code, addr);
 
     // x86_64 arch_prctl codes
-    const ARCH_SET_GS: i32 = 0x1001;
     const ARCH_SET_FS: i32 = 0x1002;
-    const ARCH_GET_FS: i32 = 0x1003;
-    const ARCH_GET_GS: i32 = 0x1004;
 
     match code {
         ARCH_SET_FS => {
@@ -84,22 +83,7 @@ pub fn sys_arch_prctl(ctx: &mut KvisorContext, code: i32, addr: u64) -> i64 {
             // TODO: Actually set FS base through platform
             0
         }
-        ARCH_SET_GS => {
-            ctx.gs_base = addr;
-            // TODO: Actually set GS base through platform
-            0
-        }
-        ARCH_GET_FS => {
-            // TODO: Write fs_base to addr
-            let _ = addr;
-            -errno::ENOSYS
-        }
-        ARCH_GET_GS => {
-            // TODO: Write gs_base to addr
-            let _ = addr;
-            -errno::ENOSYS
-        }
-        _ => -errno::EINVAL,
+        _ => -errno::ENOSYS,
     }
 }
 
@@ -107,10 +91,9 @@ pub fn sys_arch_prctl(ctx: &mut KvisorContext, code: i32, addr: u64) -> i64 {
 pub fn sys_set_tid_address(ctx: &mut KvisorContext, tidptr: *mut i32) -> i64 {
     pr_debug!("kvisor: set_tid_address(tidptr={:p})\n", tidptr);
 
-    ctx.clear_child_tid = tidptr as u64;
-
-    // Return the caller's thread ID
-    ctx.tid as i64
+    // For Phase 1, just return the PID as TID
+    let _ = tidptr;
+    ctx.pid as i64
 }
 
 /// uname(2) - get name and information about current kernel

@@ -15,7 +15,7 @@ mod exec;
 mod platform;
 mod process;
 mod syscall;
-mod vfs;
+// mod vfs;  // Not needed for Phase 1
 
 use process::KvisorContext;
 
@@ -35,7 +35,7 @@ impl kernel::Module for Kvisor {
         pr_info!("kVisor initializing\n");
 
         // Initialize subsystems
-        vfs::init()?;
+        // Note: vfs not needed for Phase 1
         syscall::init()?;
         process::init()?;
 
@@ -50,7 +50,6 @@ impl Drop for Kvisor {
 
         process::cleanup();
         syscall::cleanup();
-        vfs::cleanup();
 
         pr_info!("kVisor shutdown complete\n");
     }

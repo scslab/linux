@@ -96,63 +96,25 @@ pub fn cleanup() {
     pr_debug!("kvisor: syscall subsystem cleanup\n");
 }
 
+// FFI declaration for killing the current task
+extern "C" {
+    fn kvisor_kill_current() -> !;
+}
+
 /// Dispatch a syscall to the appropriate handler
+///
+/// For now, this just prints the syscall number and kills the task.
+/// This is for testing that syscall interception is working.
 ///
 /// # Safety
 /// The regs pointer must be valid and point to the current task's registers.
 pub fn dispatch(
-    regs: *mut bindings::pt_regs,
+    _regs: *mut bindings::pt_regs,
     nr: core::ffi::c_int,
-    ctx: &mut KvisorContext,
+    _ctx: &mut KvisorContext,
 ) -> core::ffi::c_long {
-    // Extract syscall arguments from registers
-    // x86_64 ABI: rdi, rsi, rdx, r10, r8, r9
-    let (arg0, arg1, arg2, arg3, arg4, arg5) = unsafe {
-        let r = &*regs;
-        (r.di, r.si, r.dx, r.r10, r.r8, r.r9)
-    };
+    pr_info!("kvisor: intercepted syscall {} - killing task\n", nr);
 
-    let result: i64 = match nr {
-        // File operations
-        nr::READ => fs::sys_read(ctx, arg0 as i32, arg1 as *mut u8, arg2 as usize),
-        nr::WRITE => fs::sys_write(ctx, arg0 as i32, arg1 as *const u8, arg2 as usize),
-        nr::OPEN => fs::sys_open(ctx, arg0 as *const u8, arg1 as i32, arg2 as u32),
-        nr::CLOSE => fs::sys_close(ctx, arg0 as i32),
-        nr::FSTAT => fs::sys_fstat(ctx, arg0 as i32, arg1 as *mut u8),
-        nr::LSEEK => fs::sys_lseek(ctx, arg0 as i32, arg1 as i64, arg2 as i32),
-        nr::OPENAT => fs::sys_openat(ctx, arg0 as i32, arg1 as *const u8, arg2 as i32, arg3 as u32),
-        nr::NEWFSTATAT => fs::sys_newfstatat(ctx, arg0 as i32, arg1 as *const u8, arg2 as *mut u8, arg3 as i32),
-        nr::GETCWD => fs::sys_getcwd(ctx, arg0 as *mut u8, arg1 as usize),
-        nr::CHDIR => fs::sys_chdir(ctx, arg0 as *const u8),
-        nr::DUP => fs::sys_dup(ctx, arg0 as i32),
-        nr::DUP2 => fs::sys_dup2(ctx, arg0 as i32, arg1 as i32),
-
-        // Memory operations
-        nr::MMAP => memory::sys_mmap(ctx, arg0 as usize, arg1 as usize, arg2 as i32, arg3 as i32, arg4 as i32, arg5 as i64),
-        nr::MPROTECT => memory::sys_mprotect(ctx, arg0 as usize, arg1 as usize, arg2 as i32),
-        nr::MUNMAP => memory::sys_munmap(ctx, arg0 as usize, arg1 as usize),
-        nr::BRK => memory::sys_brk(ctx, arg0 as usize),
-
-        // Process operations
-        nr::EXIT => process::sys_exit(ctx, arg0 as i32),
-        nr::EXIT_GROUP => process::sys_exit_group(ctx, arg0 as i32),
-        nr::GETPID => process::sys_getpid(ctx),
-        nr::GETPPID => process::sys_getppid(ctx),
-        nr::GETUID => process::sys_getuid(ctx),
-        nr::GETGID => process::sys_getgid(ctx),
-        nr::GETEUID => process::sys_geteuid(ctx),
-        nr::GETEGID => process::sys_getegid(ctx),
-        nr::ARCH_PRCTL => process::sys_arch_prctl(ctx, arg0 as i32, arg1 as u64),
-        nr::SET_TID_ADDRESS => process::sys_set_tid_address(ctx, arg0 as *mut i32),
-        nr::UNAME => process::sys_uname(ctx, arg0 as *mut u8),
-        nr::GETRANDOM => process::sys_getrandom(ctx, arg0 as *mut u8, arg1 as usize, arg2 as u32),
-
-        // Unimplemented syscalls
-        _ => {
-            pr_debug!("kvisor: unimplemented syscall {}\n", nr);
-            -errno::ENOSYS
-        }
-    };
-
-    result as core::ffi::c_long
+    // Kill the sandboxed process
+    unsafe { kvisor_kill_current() }
 }

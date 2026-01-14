@@ -176,6 +176,15 @@ long kvisor_exec(const char __user *path,
 }
 EXPORT_SYMBOL_GPL(kvisor_exec);
 
+/* Syscall entry point for kvisor_exec */
+SYSCALL_DEFINE3(kvisor_exec,
+		const char __user *, path,
+		const char __user *const __user *, argv,
+		const char __user *const __user *, envp)
+{
+	return kvisor_exec(path, argv, envp);
+}
+
 int kvisor_init(void)
 {
 	int ret;
