@@ -11,6 +11,7 @@
 
 use kernel::prelude::*;
 
+mod exec;
 mod platform;
 mod process;
 mod syscall;
@@ -121,5 +122,28 @@ mod ffi {
     #[no_mangle]
     pub extern "C" fn rust_kvisor_exit() {
         // Cleanup is handled by Drop
+    }
+
+    /// Execute a program in the kVisor sandbox
+    ///
+    /// # Safety
+    /// Called from C with user pointers that must be validated
+    #[no_mangle]
+    pub extern "C" fn rust_kvisor_exec(
+        path: *const core::ffi::c_char,
+        argv: *const *const core::ffi::c_char,
+        envp: *const *const core::ffi::c_char,
+    ) -> core::ffi::c_long {
+        use kernel::uaccess::UserPtr;
+
+        // Convert raw pointers to UserPtr for safe handling
+        let path_ptr = UserPtr::from_addr(path as usize);
+        let argv_ptr = UserPtr::from_addr(argv as usize);
+        let envp_ptr = UserPtr::from_addr(envp as usize);
+
+        match exec::kvisor_exec(path_ptr, argv_ptr, envp_ptr) {
+            Ok(pid) => pid as core::ffi::c_long,
+            Err(e) => i64::from(e) as core::ffi::c_long,
+        }
     }
 }

@@ -38,13 +38,16 @@ struct kvisor_task_entry {
 static DEFINE_HASHTABLE(kvisor_tasks, KVISOR_TASK_HASH_BITS);
 static DEFINE_SPINLOCK(kvisor_tasks_lock);
 
-/* Forward declaration of Rust entry point */
+/* Forward declaration of Rust entry points */
 extern long rust_kvisor_handle_syscall(struct pt_regs *regs, int nr,
 				       struct kvisor_task_ctx *ctx);
 extern struct kvisor_task_ctx *rust_kvisor_alloc_ctx(void);
 extern void rust_kvisor_free_ctx(struct kvisor_task_ctx *ctx);
 extern int rust_kvisor_init(void);
 extern void rust_kvisor_exit(void);
+extern long rust_kvisor_exec(const char __user *path,
+			     const char __user *const __user *argv,
+			     const char __user *const __user *envp);
 
 static struct kvisor_task_entry *find_task_entry(struct task_struct *task)
 {
@@ -159,22 +162,17 @@ EXPORT_SYMBOL_GPL(kvisor_free_task_ctx);
  *
  * This creates a new process that runs under kVisor supervision.
  * The parent process remains in normal Linux mode.
+ *
+ * The actual implementation is in Rust, which handles:
+ * - ELF loading
+ * - Memory mapping setup
+ * - kVisor context initialization
  */
 long kvisor_exec(const char __user *path,
 		 const char __user *const __user *argv,
 		 const char __user *const __user *envp)
 {
-	/*
-	 * TODO: Implement process spawning
-	 *
-	 * 1. Fork a new process
-	 * 2. Mark child as sandboxed
-	 * 3. Set up kVisor context (fd table, memory map, etc.)
-	 * 4. Exec the target binary in the child
-	 * 5. Return child PID to parent
-	 */
-	pr_info("kvisor: kvisor_exec called (not yet implemented)\n");
-	return -ENOSYS;
+	return rust_kvisor_exec(path, argv, envp);
 }
 EXPORT_SYMBOL_GPL(kvisor_exec);
 
