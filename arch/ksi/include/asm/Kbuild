@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# KSI asm header Kbuild
+#
+# Include arm64's Kbuild for syscall table generation and generic-y mappings.
+include $(srctree)/arch/arm64/include/asm/Kbuild
+
+# Additional generic-y entries for KSI
+generic-y += parport.h
+generic-y += user.h

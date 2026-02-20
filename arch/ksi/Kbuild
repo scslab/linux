@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0
+
+obj-y += kernel/
+obj-y += kernel/arch-$(KSI_SRCARCH)/
+obj-y += mm/arch-$(KSI_SRCARCH)/

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config KSI
+	def_bool y
+	help
+	  KSI (Kernel System Interface) architecture port.
+	  Uses para-virtualization to run Linux inside novel host
+	  environments (microkernels, hypervisors, user-mode processes).
+
+# Target sub-architecture. Currently only arm64 is supported.
+# To add a new architecture, create Kconfig.<arch> and kernel/arch-<arch>/.
+source "arch/ksi/Kconfig.arm64"
+
+source "arch/ksi/Kconfig.debug"
