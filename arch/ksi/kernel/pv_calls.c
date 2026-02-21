@@ -9,8 +9,14 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/init.h>
+#include <linux/sched.h>
 #include <linux/start_kernel.h>
+#include <asm/memory.h>
+#include <asm/sysreg.h>
 #include <asm/pv_calls.h>
+
+/* From arm64 mm/mmu.c */
+extern u64 kimage_voffset;
 
 /* Forward declaration */
 asmlinkage void ksi_start_kernel(void);
@@ -18,10 +24,26 @@ asmlinkage void ksi_start_kernel(void);
 /* Entry point called from head.S */
 asmlinkage void __init ksi_start_kernel(void)
 {
+	extern struct task_struct init_task;
+
 	/*
-	 * TODO: Initialize boot info, memblock, call start_kernel().
-	 * For skeleton, just call start_kernel() directly.
+	 * Initialize current task pointer in SP_EL0.
+	 * arm64 normally does this in head.S.
 	 */
+	write_sysreg(&init_task, sp_el0);
+
+	/*
+	 * Initialize kimage_voffset for VA/PA translation.
+	 *
+	 * kimage_voffset: offset from kernel VA to PA (KIMAGE_VADDR - phys).
+	 * The host loads the kernel at physical address 0 and maps it
+	 * at KIMAGE_VADDR.  memstart_addr is set later by arm64_memblock_init().
+	 */
+	kimage_voffset = KIMAGE_VADDR;
+
+	/* Register the KSI early console so printk output is visible */
+	ksi_setup_early_console();
+
 	start_kernel();
 }
 
@@ -90,27 +112,6 @@ void ksi_timer_arm(u64 deadline_ns)
 void ksi_timer_disarm(void)
 {
 	panic("ksi_timer_disarm: not implemented");
-}
-
-/* IRQ control */
-void ksi_irq_enable(void)
-{
-	panic("ksi_irq_enable: not implemented");
-}
-
-void ksi_irq_disable(void)
-{
-	panic("ksi_irq_disable: not implemented");
-}
-
-unsigned long ksi_irq_save(void)
-{
-	panic("ksi_irq_save: not implemented");
-}
-
-void ksi_irq_restore(unsigned long flags)
-{
-	panic("ksi_irq_restore: not implemented");
 }
 
 /* SMP */

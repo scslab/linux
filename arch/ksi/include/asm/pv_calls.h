@@ -47,12 +47,6 @@ u64 ksi_time_now(void);
 void ksi_timer_arm(u64 deadline_ns);
 void ksi_timer_disarm(void);
 
-/* IRQ control */
-void ksi_irq_enable(void);
-void ksi_irq_disable(void);
-unsigned long ksi_irq_save(void);
-void ksi_irq_restore(unsigned long flags);
-
 /* SMP */
 int ksi_cpu_start(unsigned int cpu, unsigned long entry);
 void ksi_send_ipi(unsigned int cpu);
@@ -61,5 +55,8 @@ void ksi_wait_for_event(void);
 /* System */
 void ksi_halt(void) __attribute__((noreturn));
 void ksi_yield(void);
+
+/* Early boot console — registers before start_kernel() */
+void ksi_setup_early_console(void);
 
 #endif /* __ASM_KSI_PV_CALLS_H */

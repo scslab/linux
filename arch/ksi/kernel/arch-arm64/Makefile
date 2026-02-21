@@ -30,8 +30,11 @@ obj-y := debug-monitors.o entry.o irq.o fpsimd.o			\
 	 syscall.o proton-pack.o idle.o patching.o pi/			\
 	 rsi.o jump_label.o
 
-# KSI: filter out hardware-specific and complex objects not needed for skeleton
-obj-y := $(filter-out smp_spin_table.o hyp-stub.o psci.o pi/ vdso.o,$(obj-y))
+# KSI: filter out objects replaced by KSI-specific implementations.
+# setup.o  → arch/ksi/kernel/setup.c (no FDT, direct memblock init)
+# irq.o    → arch/ksi/kernel/irq.c (no GIC, host IRQ delivery)
+# time.o   → arch/ksi/kernel/time.c (no arch timer, KSI clocksource)
+obj-y := $(filter-out setup.o irq.o time.o smp_spin_table.o hyp-stub.o psci.o pi/ vdso.o,$(obj-y))
 
 # Conditional arm64 objects
 obj-$(CONFIG_COMPAT)			+= sys32.o signal32.o sys_compat.o
@@ -66,9 +69,9 @@ define ksi_arm64_ref
 endef
 
 $(call ksi_arm64_ref, \
-	debug-monitors entry irq fpsimd \
+	debug-monitors entry fpsimd \
 	entry-common entry-fpsimd process ptrace \
-	setup signal sys stacktrace time traps \
+	signal sys stacktrace traps \
 	io cpu_ops \
 	return_address cpuinfo cpu_errata \
 	cpufeature alternative cacheinfo \
