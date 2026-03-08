@@ -36,6 +36,7 @@ struct revisor_region {
 
 #define REVISOR_CREATE_REGION	_IOW('R', 1, struct revisor_region)
 #define REVISOR_DOORBELL	_IO('R', 2)
+#define REVISOR_GET_SIZE	_IOR('R', 3, __u64)
 
 /* Parsed from kernel command line. */
 static phys_addr_t arena_base;
@@ -135,6 +136,13 @@ static long arena_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (doorbell_va)
 			writel(1, doorbell_va);
 		return 0;
+
+	case REVISOR_GET_SIZE: {
+		__u64 sz = arena_size;
+		if (copy_to_user((void __user *)arg, &sz, sizeof(sz)))
+			return -EFAULT;
+		return 0;
+	}
 	}
 
 	return -ENOTTY;
