@@ -423,4 +423,16 @@ config ADI
 	  and SSM (Silicon Secured Memory).  Intended consumers of this
 	  driver include crash and makedumpfile.
 
+config REVISOR_ARENA
+	bool "Revisor shared memory arena driver"
+	depends on X86_64
+	default n
+	help
+	  Exposes a hypervisor-mapped shared memory region to guest userspace
+	  as /dev/revisor-arena. Used by the Revisor microvm hypervisor for
+	  host-guest communication and shared memory fd creation.
+
+	  Pass revisor_arena=<base>,<size>,<irq>,<doorbell> on the kernel
+	  command line to configure.
+
 endmenu
