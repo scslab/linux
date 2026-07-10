@@ -25,7 +25,12 @@
 #include <asm/processor.h>
 #include <asm/processor-flags.h>
 #include <asm/pgtable_types.h>
+#include <asm/ptrace.h>
+#include <asm/segment.h>
+#include <asm/syscall.h>
+#include <asm/unistd.h>
 
+#include <linux/entry-common.h>
 #include <linux/err.h>
 #include <linux/gfp.h>
 #include <linux/kvm_host.h>
@@ -75,17 +80,51 @@ bool neodune_supported(void)
 }
 
 /*
- * Route a neodune guest's VMMCALL out to userspace. This exists for bring-up
- * observability; system-call forwarding services the guest in-kernel instead.
+ * A neodune guest issues system calls with VMMCALL. Marshal the guest registers
+ * into a pt_regs and dispatch to the host handler; the call runs against
+ * current->mm, and GVA == HVA makes pointer arguments valid host addresses.
+ * exit and exit_group leave the guest by returning to userspace.
  */
 int neodune_handle_vmmcall(struct kvm_vcpu *vcpu)
 {
-	struct kvm_run *run = vcpu->run;
+	unsigned long nr = kvm_rax_read(vcpu);
+	struct pt_regs regs = {
+		.orig_ax = nr,
+		.ax = nr,
+		.di = kvm_register_read_raw(vcpu, VCPU_REGS_RDI),
+		.si = kvm_register_read_raw(vcpu, VCPU_REGS_RSI),
+		.dx = kvm_register_read_raw(vcpu, VCPU_REGS_RDX),
+		.r10 = kvm_register_read_raw(vcpu, VCPU_REGS_R10),
+		.r8 = kvm_register_read_raw(vcpu, VCPU_REGS_R8),
+		.r9 = kvm_register_read_raw(vcpu, VCPU_REGS_R9),
+		.ip = kvm_rip_read(vcpu),
+		.sp = kvm_register_read_raw(vcpu, VCPU_REGS_RSP),
+		.cs = __USER_CS,
+		.ss = __USER_DS,
+		.flags = X86_EFLAGS_IF | X86_EFLAGS_FIXED,
+	};
+	long snr, ret;
 
-	run->exit_reason = KVM_EXIT_HYPERCALL;
-	run->hypercall.nr = kvm_rax_read(vcpu);
-	run->hypercall.ret = 0;
-	return 0;
+	if (nr == __NR_exit || nr == __NR_exit_group) {
+		vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+		return 0;
+	}
+
+	/* Compose the host's syscall-entry work (seccomp, ptrace, audit). */
+	snr = syscall_enter_from_user_mode_work(&regs, nr);
+
+	if (snr == -1L) {
+		ret = regs.ax;			/* skipped by seccomp/ptrace */
+	} else if ((unsigned long)snr < NR_syscalls) {
+		kvm_vcpu_srcu_read_unlock(vcpu);
+		ret = x64_sys_call(&regs, snr);
+		kvm_vcpu_srcu_read_lock(vcpu);
+	} else {
+		ret = -ENOSYS;
+	}
+
+	kvm_rax_write(vcpu, ret);
+	return kvm_skip_emulated_instruction(vcpu);
 }
 
 #define NEODUNE_PT_GPA		0xfe000000ULL
