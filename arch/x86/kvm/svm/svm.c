@@ -53,6 +53,8 @@
 #include "svm.h"
 #include "svm_ops.h"
 
+#include "neodune.h"
+
 #include "hyperv.h"
 #include "kvm_onhyperv.h"
 #include "svm_onhyperv.h"
@@ -1969,6 +1971,13 @@ static int npf_interception(struct kvm_vcpu *vcpu)
 
 	u64 error_code = svm->vmcb->control.exit_info_1;
 	gpa_t gpa = svm->vmcb->control.exit_info_2;
+
+	if (vcpu->kvm->arch.neodune) {
+		int r = neodune_npf(vcpu, gpa, error_code);
+
+		if (r != NEODUNE_NPF_PASS)
+			return r;
+	}
 
 	/*
 	 * WARN if hardware generates a fault with an error code that collides

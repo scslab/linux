@@ -130,6 +130,7 @@
 	KVM_ARCH_REQ_FLAGS(32, KVM_REQUEST_WAIT | KVM_REQUEST_NO_WAKEUP)
 #define KVM_REQ_UPDATE_PROTECTED_GUEST_STATE \
 	KVM_ARCH_REQ_FLAGS(34, KVM_REQUEST_WAIT)
+#define KVM_REQ_NEODUNE_SYNC		KVM_ARCH_REQ(35)
 
 #define CR0_RESERVED_BITS                                               \
 	(~(unsigned long)(X86_CR0_PE | X86_CR0_MP | X86_CR0_EM | X86_CR0_TS \
@@ -1127,6 +1128,7 @@ struct kvm_arch_memory_slot {
 	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
 	unsigned short *gfn_write_track;
+	bool neodune_noexec;
 };
 
 /*
@@ -1424,6 +1426,10 @@ struct kvm_arch {
 	bool has_protected_eoi;
 	bool pre_fault_allowed;
 	bool neodune;
+	struct ida neodune_ida;
+	spinlock_t neodune_lock;
+	u64 neodune_inval_start;
+	u64 neodune_inval_end;
 	struct hlist_head *mmu_page_hash;
 	struct list_head active_mmu_pages;
 	struct kvm_possible_nx_huge_pages possible_nx_huge_pages[KVM_NR_MMU_TYPES];

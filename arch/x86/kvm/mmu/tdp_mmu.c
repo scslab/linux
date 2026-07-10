@@ -1184,12 +1184,17 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 		return RET_PF_SPURIOUS;
 	}
 
-	if (unlikely(!fault->slot))
+	if (unlikely(!fault->slot)) {
 		new_spte = make_mmio_spte(vcpu, iter->gfn, ACC_ALL);
-	else
-		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
+	} else {
+		u64 access = ACC_ALL;
+
+		if (fault->slot->arch.neodune_noexec)
+			access &= ~ACC_EXEC_MASK;
+		wrprot = make_spte(vcpu, sp, fault->slot, access, iter->gfn,
 				   fault->pfn, iter->old_spte, fault->prefetch,
 				   false, fault->map_writable, &new_spte);
+	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;

@@ -718,6 +718,8 @@ bool kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 	return kvm_unmap_gfn_range(kvm, range);
 }
 
+__weak void neodune_note_invalidate(struct kvm *kvm, u64 start, u64 end) {}
+
 static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 					const struct mmu_notifier_range *range)
 {
@@ -732,6 +734,8 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	};
 
 	trace_kvm_unmap_hva_range(range->start, range->end);
+
+	neodune_note_invalidate(kvm, range->start, range->end);
 
 	/*
 	 * Prevent memslot modification between range_start() and range_end()
@@ -1991,8 +1995,8 @@ static bool kvm_check_memslot_overlap(struct kvm_memslots *slots, int id,
 	return false;
 }
 
-static int kvm_set_memory_region(struct kvm *kvm,
-				 const struct kvm_userspace_memory_region2 *mem)
+int kvm_set_memory_region(struct kvm *kvm,
+			  const struct kvm_userspace_memory_region2 *mem)
 {
 	struct kvm_memory_slot *old, *new;
 	struct kvm_memslots *slots;

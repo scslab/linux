@@ -6,6 +6,7 @@
 #ifndef ARCH_X86_KVM_NEODUNE_H
 #define ARCH_X86_KVM_NEODUNE_H
 
+#include <linux/limits.h>
 #include <linux/types.h>
 
 struct neodune_caps {
@@ -31,5 +32,14 @@ int neodune_vm_setup(struct kvm *kvm);
 
 /* Put a vCPU into 64-bit CPL0 over the identity page table (once, post-reset). */
 void neodune_setup_guest_state(struct kvm_vcpu *vcpu);
+
+/* Sentinel: the fault is not neodune's, fall through to normal KVM handling. */
+#define NEODUNE_NPF_PASS INT_MIN
+
+/* Lazily back a faulting GPA with a per-VMA identity memslot. */
+int neodune_npf(struct kvm_vcpu *vcpu, u64 gpa, u64 error_code);
+
+/* Reconcile per-VMA memslots after an mmu_notifier invalidation. */
+void neodune_sync_memslots(struct kvm_vcpu *vcpu);
 
 #endif /* ARCH_X86_KVM_NEODUNE_H */
