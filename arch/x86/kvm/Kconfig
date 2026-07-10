@@ -169,6 +169,19 @@ config KVM_AMD_SEV
 	  Encrypted State (SEV-ES), and Secure Encrypted Virtualization with
 	  Secure Nested Paging (SEV-SNP) technologies on AMD processors.
 
+config KVM_NEODUNE
+	bool "neodune: Dune-like process virtualization (AMD SVM)"
+	depends on KVM_X86 && X86_64
+	help
+	  Adds a KVM VM type that runs a Linux process as its own guest at
+	  CPL0 on AMD SVM, with a nested page table mirroring the process's
+	  address space and system calls forwarded to the host kernel -- a
+	  modern, in-KVM reimplementation of Dune. Availability requires AMD
+	  SVM + NPT, is probed at runtime, and is advertised to userspace via
+	  KVM_CAP_NEODUNE.
+
+	  If unsure, say "N".
+
 config KVM_IOAPIC
 	bool "I/O APIC, PIC, and PIT emulation"
 	default y

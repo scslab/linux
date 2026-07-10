@@ -28,6 +28,7 @@
 #include "mmu/page_track.h"
 #include "x86.h"
 #include "cpuid.h"
+#include "neodune.h"
 #include "pmu.h"
 #include "hyperv.h"
 #include "lapic.h"
@@ -4792,6 +4793,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	int r = 0;
 
 	switch (ext) {
+	case KVM_CAP_NEODUNE:
+		r = neodune_supported();
+		break;
 	case KVM_CAP_IRQCHIP:
 	case KVM_CAP_HLT:
 	case KVM_CAP_MMU_SHADOW_CACHE_CONTROL:
