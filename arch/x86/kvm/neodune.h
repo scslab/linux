@@ -21,4 +21,15 @@ void neodune_probe_caps(struct neodune_caps *c);
 /* True iff this CPU can host neodune guests (AMD SVM + NPT). */
 bool neodune_supported(void);
 
+struct kvm;
+struct kvm_vcpu;
+
+int neodune_handle_vmmcall(struct kvm_vcpu *vcpu);
+
+/* Build the per-VM identity page table backing the guest's boot CR3. */
+int neodune_vm_setup(struct kvm *kvm);
+
+/* Put a vCPU into 64-bit CPL0 over the identity page table (once, post-reset). */
+void neodune_setup_guest_state(struct kvm_vcpu *vcpu);
+
 #endif /* ARCH_X86_KVM_NEODUNE_H */

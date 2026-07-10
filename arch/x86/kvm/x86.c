@@ -6757,6 +6757,22 @@ int kvm_vm_ioctl_enable_cap(struct kvm *kvm,
 		return -EINVAL;
 
 	switch (cap->cap) {
+	case KVM_CAP_NEODUNE:
+		r = -EINVAL;
+		if (!neodune_supported())
+			break;
+		mutex_lock(&kvm->lock);
+		if (!kvm->created_vcpus) {
+			kvm->arch.neodune = true;
+			r = 0;
+		}
+		mutex_unlock(&kvm->lock);
+		if (!r) {
+			r = neodune_vm_setup(kvm);
+			if (r)
+				kvm->arch.neodune = false;
+		}
+		break;
 	case KVM_CAP_DISABLE_QUIRKS2:
 		r = -EINVAL;
 		if (cap->args[0] & ~kvm_caps.supported_quirks)
@@ -10540,6 +10556,9 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(____kvm_emulate_hypercall);
 
 int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 {
+	if (vcpu->kvm->arch.neodune)
+		return neodune_handle_vmmcall(vcpu);
+
 	if (kvm_xen_hypercall_enabled(vcpu->kvm))
 		return kvm_xen_hypercall(vcpu);
 
@@ -12037,6 +12056,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 	kvm_load_guest_fpu(vcpu);
 
 	kvm_vcpu_srcu_read_lock(vcpu);
+
+	if (vcpu->kvm->arch.neodune && !is_long_mode(vcpu))
+		neodune_setup_guest_state(vcpu);
+
 	if (unlikely(vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)) {
 		if (!vcpu->wants_to_run) {
 			r = -EINTR;

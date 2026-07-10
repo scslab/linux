@@ -23,8 +23,18 @@
 #include <asm/msr.h>
 #include <asm/msr-index.h>
 #include <asm/processor.h>
+#include <asm/processor-flags.h>
+#include <asm/pgtable_types.h>
+
+#include <linux/err.h>
+#include <linux/gfp.h>
+#include <linux/kvm_host.h>
+#include <linux/uaccess.h>
 
 #include "neodune.h"
+#include "kvm_cache_regs.h"
+#include "mmu.h"
+#include "x86.h"
 
 void neodune_probe_caps(struct neodune_caps *c)
 {
@@ -62,4 +72,99 @@ bool neodune_supported(void)
 
 	/* neodune's memory model requires nested paging. */
 	return c.svm && c.npt;
+}
+
+/*
+ * Route a neodune guest's VMMCALL out to userspace. This exists for bring-up
+ * observability; system-call forwarding services the guest in-kernel instead.
+ */
+int neodune_handle_vmmcall(struct kvm_vcpu *vcpu)
+{
+	struct kvm_run *run = vcpu->run;
+
+	run->exit_reason = KVM_EXIT_HYPERCALL;
+	run->hypercall.nr = kvm_rax_read(vcpu);
+	run->hypercall.ret = 0;
+	return 0;
+}
+
+#define NEODUNE_PT_GPA		0xfe000000ULL
+#define NEODUNE_PT_PML4ES	256			/* low canonical half */
+#define NEODUNE_PT_PAGES	(1 + NEODUNE_PT_PML4ES)	/* PML4 + PDPTs */
+#define NEODUNE_PT_SIZE		(NEODUNE_PT_PAGES * PAGE_SIZE)
+#define NEODUNE_IDMAP_SLOT	(KVM_USER_MEM_SLOTS + 2)
+
+int neodune_vm_setup(struct kvm *kvm)
+{
+	void __user *hva;
+	u64 *page;
+	int i, j, ret;
+
+	page = (u64 *)__get_free_page(GFP_KERNEL);
+	if (!page)
+		return -ENOMEM;
+
+	mutex_lock(&kvm->slots_lock);
+
+	hva = __x86_set_memory_region(kvm, NEODUNE_IDMAP_SLOT, NEODUNE_PT_GPA,
+				      NEODUNE_PT_SIZE);
+	if (IS_ERR(hva)) {
+		ret = PTR_ERR(hva);
+		goto out;
+	}
+
+	/* PML4: entry i -> PDPT page i. */
+	memset(page, 0, PAGE_SIZE);
+	for (i = 0; i < NEODUNE_PT_PML4ES; i++)
+		page[i] = (NEODUNE_PT_GPA + (u64)(1 + i) * PAGE_SIZE) |
+			  _PAGE_PRESENT | _PAGE_RW;
+	ret = __copy_to_user(hva, page, PAGE_SIZE) ? -EFAULT : 0;
+	if (ret)
+		goto out;
+
+	/* PDPTs: entry j -> 1 GiB identity page. */
+	for (i = 0; i < NEODUNE_PT_PML4ES; i++) {
+		for (j = 0; j < 512; j++)
+			page[j] = (((u64)i * 512 + j) << 30) |
+				  _PAGE_PRESENT | _PAGE_RW | _PAGE_PSE;
+		if (__copy_to_user(hva + (u64)(1 + i) * PAGE_SIZE, page,
+				   PAGE_SIZE)) {
+			ret = -EFAULT;
+			goto out;
+		}
+	}
+out:
+	mutex_unlock(&kvm->slots_lock);
+	free_page((unsigned long)page);
+	return ret;
+}
+
+void neodune_setup_guest_state(struct kvm_vcpu *vcpu)
+{
+	struct kvm_segment cs = {
+		.limit = 0xfffff, .selector = 0x08, .type = 0xb,
+		.s = 1, .present = 1, .l = 1, .g = 1,
+	};
+	struct kvm_segment ds = {
+		.limit = 0xfffff, .selector = 0x10, .type = 0x3,
+		.s = 1, .present = 1, .db = 1, .g = 1,
+	};
+
+	vcpu->arch.cr2 = 0;
+	vcpu->arch.cr3 = NEODUNE_PT_GPA;
+	kvm_register_mark_dirty(vcpu, VCPU_EXREG_CR3);
+	kvm_x86_call(post_set_cr3)(vcpu, NEODUNE_PT_GPA);
+
+	kvm_x86_call(set_efer)(vcpu, EFER_LME);
+	kvm_x86_call(set_cr4)(vcpu, X86_CR4_PAE);
+	kvm_x86_call(set_cr0)(vcpu, X86_CR0_PE | X86_CR0_PG | X86_CR0_WP);
+
+	kvm_set_segment(vcpu, &cs, VCPU_SREG_CS);
+	kvm_set_segment(vcpu, &ds, VCPU_SREG_DS);
+	kvm_set_segment(vcpu, &ds, VCPU_SREG_ES);
+	kvm_set_segment(vcpu, &ds, VCPU_SREG_FS);
+	kvm_set_segment(vcpu, &ds, VCPU_SREG_GS);
+	kvm_set_segment(vcpu, &ds, VCPU_SREG_SS);
+
+	kvm_mmu_reset_context(vcpu);
 }
